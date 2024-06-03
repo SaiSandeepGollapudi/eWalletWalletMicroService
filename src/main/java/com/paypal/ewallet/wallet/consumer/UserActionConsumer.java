@@ -32,5 +32,10 @@ public class UserActionConsumer {// we cannot just use kafkaTemplate to consume 
         walletService.createWallet(Long.valueOf(message));// here there is a chance of error so we have logged that exception
         //in the walletService as createWallet is method in WalletService so it can handle it
     }
+    @KafkaListener(topics="${kafka.topic.user-deleted}", groupId = "walletGrp")
+    public void consumeUserDeleted(String message){
 
+        logger.info(String.format("Message received -> %s",message));
+        walletService.deleteWallet(Long.valueOf(message));
+    }
 }
