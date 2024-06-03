@@ -8,4 +8,7 @@ public interface WalletService {
 
     public Wallet deleteWallet(Long userId);
 
+    public WalletResponse getWallet(Long userId);
+
+
 }
