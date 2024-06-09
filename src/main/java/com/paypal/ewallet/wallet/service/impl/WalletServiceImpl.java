@@ -5,11 +5,14 @@ import com.paypal.ewallet.wallet.exception.WalletException;
 import com.paypal.ewallet.wallet.repository.WalletRepository;
 import com.paypal.ewallet.wallet.service.WalletService;
 import com.paypal.ewallet.wallet.service.resource.WalletResponse;
+import com.paypal.ewallet.wallet.service.resource.WalletTransactionRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 
+import java.util.Objects;
 import java.util.Optional;
 @Service
 public class WalletServiceImpl implements WalletService {
@@ -22,8 +25,8 @@ public class WalletServiceImpl implements WalletService {
     @Override
     public void createWallet(Long userId) {
         try{
-                    Optional<Wallet> optionalWallet=walletRepository.findByUserId(userId);
-                    if(optionalWallet.isPresent()){
+            Wallet userWallet=walletRepository.findByUserId(userId);
+            if(Objects.nonNull(userWallet)){// Check if the wallet object is not null
                         logger.info("Wallet already exists for user: {}",userId);
                         return;
                     }
@@ -46,9 +49,8 @@ wallet.setBalance(0.0);
     @Override
     public Wallet deleteWallet(Long userId) {
         try{
-            Optional<Wallet> optionalWallet=walletRepository.findByUserId(userId);
-            if(optionalWallet.isPresent()){
-                Wallet wallet=optionalWallet.get();
+            Wallet wallet=walletRepository.findByUserId(userId);
+            if(Objects.nonNull(wallet)){// Check if the wallet object is not null
                 walletRepository.delete(wallet);
                 return wallet;
             }else{
@@ -64,13 +66,52 @@ wallet.setBalance(0.0);
 
     @Override
     public WalletResponse getWallet(Long userId) {
-        Optional<Wallet> optionalWallet = walletRepository.findByUserId(userId);
-        if (optionalWallet.isPresent()) {
+        Wallet wallet = walletRepository.findByUserId(userId);
+        if (Objects.nonNull(wallet)) {
             logger.info("Wallet already exists for user: {}", userId);
             WalletResponse walletResponse = new WalletResponse(optionalWallet.get());
             return walletResponse;
         } else {
             throw new WalletException("EWALLET_WALLET_NOT_FOUND", "wallet not found for the user");
+        }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW,rollbackFor = WalletException.class,noRollbackFor = NullPointerException.class)
+    public boolean performTransaction(WalletTransactionRequest walletTransactionRequest) {
+        Wallet senderWallet = walletRepository.findByUserId(walletTransactionRequest.getSenderId());
+        Wallet receiverWallet = walletRepository.findByUserId(walletTransactionRequest.getReceiverId());
+
+        if(TransactionType.DEPOSIT.name().equals(walletTransactionRequest.getTransactionType())){
+            if (Objects.isNull(receiverWallet)) {
+                throw new WalletException("EWALLET_WALLET_NOT_FOUND", "wallet not found for the user");
+            }
+            updateWallet(receiverWallet,walletTransactionRequest.getAmount());
+            return true;
+        }
+        else if(TransactionType.WITHDRAW.name().equals(walletTransactionRequest.getTransactionType())){
+            if (Objects.isNull(receiverWallet)) {
+                throw new WalletException("EWALLET_WALLET_NOT_FOUND", "wallet not found for the user");
+            }
+            updateWallet(receiverWallet,-1 * walletTransactionRequest.getAmount());
+            return true;
+        }
+        else if(TransactionType.TRANSFER.name().equals(walletTransactionRequest.getTransactionType())) {
+            try {
+                if (Objects.isNull(senderWallet) || Objects.isNull(receiverWallet)) {
+                    throw new WalletException("EWALLET_WALLET_NOT_FOUND", "wallet not found for the user");
+                }
+                handleTransaction(senderWallet, receiverWallet, walletTransactionRequest.getAmount());
+                return true;
+            } catch (WalletException exception) {
+
+                logger.error("Exception while performing transaction: {} ", exception.getMessage());
+
+                throw exception;
+            }
+        }
+        else{
+            throw  new WalletException("EWALLET_INVALID_TRANSACTION_TYPE","Invalid transaction type");
         }
     }
 
